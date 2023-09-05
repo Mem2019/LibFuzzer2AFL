@@ -1,0 +1,11 @@
+afl.o
+compiler
+compiler++
+test
+test_afl
+test_cross_over
+test_mutator
+in/
+out/
+libfuzzer-mutator.a
+.gdb_history
