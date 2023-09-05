@@ -69,6 +69,19 @@ size_t afl_custom_fuzz(void *data, uint8_t *buf, size_t buf_size, uint8_t **out_
 			add_buf_size > 0))
 			// Finally, we also must ensure the second buf exists
 	{
+		if (add_buf_size == 0)
+		{
+			// If we don't have the second buffer,
+			// and we also have no LLVMFuzzerCustomMutator,
+			// we clone the first buffer as the second buffer,
+			// and use LLVMFuzzerCustomCrossOver.
+			add_buf = (uint8_t*)malloc(buf_size);
+			memcpy(add_buf, buf, buf_size);
+			size_t ret = LLVMFuzzerCustomCrossOver(
+				buf, buf_size, add_buf, buf_size, mutated_out, max_size, rand());
+			free(add_buf);
+			return ret;
+		}
 		return LLVMFuzzerCustomCrossOver(
 			buf, buf_size, add_buf, add_buf_size, mutated_out, max_size, rand());
 	}

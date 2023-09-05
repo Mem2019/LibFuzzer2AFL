@@ -30,4 +30,4 @@ test: compiler test.c
 	@echo "AFLplusplus/afl-fuzz -i in/ -o out/ ./test_afl"
 
 clean:
-	rm -rf afl.o compiler compiler++ test test_cross_over test_mutator in/ out/
+	rm -rf afl.o compiler compiler++ test test_cross_over test_mutator test_afl in/ out/ libfuzzer-mutator.a
