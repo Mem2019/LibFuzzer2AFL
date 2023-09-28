@@ -62,19 +62,28 @@ bool is_fsanitize_fuzzer(const char* s)
 	return ret;
 }
 
-bool is_libfuzzer_link(int argc, char const *argv[], const char* clang)
+/*
+The function identifies libfuzzer linkage, returns non-zero if it is.
+When flag `-fsanitize=fuzzer` is detected, it returns 2.
+Since such flag is going to be removed, we need to link with `libfuzzer-mutator.a` for
+symbol `LLVMFuzzerMutate`. When the binary is considered as libfuzzer binary,
+but is generated with `-fsanitize=fuzzer-no-link`, we assume `LLVMFuzzerMutate` exists
+in the binary so we do not link with `libfuzzer-mutator.a`.
+*/
+
+int is_libfuzzer_link(int argc, char const *argv[], const char* clang)
 {
 	for (int i = 0; i < argc; ++i)
 	{
 		// If command is not link command.
 		if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "-E") == 0)
-			return false;
+			return 0;
 	}
 	for (int i = 0; i < argc; ++i)
 	{
 		// If contains `-fsanitize=fuzzer`, it is considered as extraction target.
 		if (is_fsanitize_fuzzer(argv[i]))
-			return true;
+			return 2;
 	}
 
 	// Then we go to the slow path, we try to compile the binary,
@@ -122,7 +131,7 @@ bool is_libfuzzer_link(int argc, char const *argv[], const char* clang)
 	static const char toi[] = "LLVMFuzzerTestOneInput";
 	static const char cm[] = "LLVMFuzzerCustomMutator";
 	static const char cco[] = "LLVMFuzzerCustomCrossOver";
-	bool ret =
+	int ret =
 		memmem(file_content, st.st_size, toi, sizeof(toi)) != NULL &&
 		(memmem(file_content, st.st_size, cm, sizeof(cm)) != NULL ||
 			memmem(file_content, st.st_size, cco, sizeof(cco)) != NULL);
@@ -196,7 +205,7 @@ int main(int argc, char const *argv[])
 		new_argv[new_argc++] = cxx ? cxx : "clang++";
 	}
 
-	bool if_libfuzzer = is_libfuzzer_link(argc, argv, new_argv[0]);
+	int if_libfuzzer = is_libfuzzer_link(argc, argv, new_argv[0]);
 	new_argv[new_argc++] = "-fPIC"; // always PIC
 
 	if (if_libfuzzer)
@@ -222,12 +231,14 @@ int main(int argc, char const *argv[])
 		int r = asprintf(&path, "%s/afl.o", repo_path);
 		if (r < 0) abort();
 		new_argv[new_argc++] = path;
-		path = NULL;
-		r = asprintf(&path, "%s/libfuzzer-mutator.a", repo_path);
-		if (r < 0) abort();
-		new_argv[new_argc++] = path;
-		new_argv[new_argc++] = "-lstdc++";
-		new_argv[new_argc++] = "-lm";
+		if (if_libfuzzer == 2)
+		{
+			r = asprintf(&path, "%s/libfuzzer-mutator.a", repo_path);
+			if (r < 0) abort();
+			new_argv[new_argc++] = path;
+			new_argv[new_argc++] = "-lstdc++";
+			new_argv[new_argc++] = "-lm";
+		}
 	}
 	new_argv[new_argc++] = "-Wno-unused-command-line-argument";
 	new_argv[new_argc] = NULL;

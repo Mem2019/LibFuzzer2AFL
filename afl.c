@@ -15,7 +15,9 @@ __attribute__((weak)) extern size_t LLVMFuzzerCustomCrossOver(
 	const uint8_t *Data1, size_t Size1, const uint8_t *Data2, size_t Size2,
 	uint8_t *Out, size_t MaxOutSize, unsigned int Seed);
 
-void LLVMFuzzerMyInit(int (*UserCb)(const uint8_t*, size_t), unsigned int Seed);
+__attribute__((weak)) extern void LLVMFuzzerMyInit(
+	int (*UserCb)(const uint8_t*, size_t), unsigned int Seed);
+
 static int dummy(const uint8_t *, size_t) { return 0; }
 
 void* afl_custom_init(void *afl, unsigned int seed)
@@ -48,7 +50,7 @@ void* afl_custom_init(void *afl, unsigned int seed)
 		}
 	}
 	srand(seed);
-	LLVMFuzzerMyInit(dummy, seed);
+	if (LLVMFuzzerMyInit) LLVMFuzzerMyInit(dummy, seed);
 	return (void*)1;
 }
 
