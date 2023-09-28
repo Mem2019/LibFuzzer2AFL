@@ -4,10 +4,38 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <assert.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <sys/mman.h>
+
+/* Call `execvp` in child process, return true if execution is successful. */
+bool execvp_child(char* const* argv)
+{
+	pid_t pid = fork();
+
+	if (pid < 0)
+	{
+		perror("fork");
+		return false;
+	}
+	else if (pid == 0)
+	{
+		execvp(argv[0], argv);
+		perror("execvp");
+		abort();
+	}
+	else
+	{
+		int status;
+		if (waitpid(pid, &status, 0) < 0)
+			return false;
+		return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+	}
+}
 
 /* This compiler converts the link command that produces a libFuzzer binary to
 	the command that produces a AFL++ custom mutator shared library,
@@ -34,7 +62,7 @@ bool is_fsanitize_fuzzer(const char* s)
 	return ret;
 }
 
-bool is_libfuzzer_link(int argc, char const *argv[])
+bool is_libfuzzer_link(int argc, char const *argv[], const char* clang)
 {
 	for (int i = 0; i < argc; ++i)
 	{
@@ -48,7 +76,66 @@ bool is_libfuzzer_link(int argc, char const *argv[])
 		if (is_fsanitize_fuzzer(argv[i]))
 			return true;
 	}
-	return false;
+
+	// Then we go to the slow path, we try to compile the binary,
+	// and check if it contains LLVM fuzzing strings.
+	char const** new_argv = (char const**)malloc((argc + 1) * sizeof(char const*));
+	int new_argc = 0;
+	new_argv[new_argc++] = clang;
+	const char* file_name = NULL;
+	for (int i = 1; i < argc; ++i)
+	{
+		if (strcmp(argv[i], "-s") != 0) // We don't strip.
+			new_argv[new_argc++] = argv[i];
+		if (strcmp(argv[i], "-o") == 0 && i + 1 < argc)
+			file_name = argv[i + 1];
+	}
+	new_argv[new_argc] = NULL;
+	if (!execvp_child((char**)new_argv))
+		exit(EXIT_FAILURE);
+	if (file_name == NULL)
+		file_name = "a.out";
+
+	int fd = open(file_name, O_RDONLY);
+	if (fd < 0)
+	{
+		perror("open");
+		exit(EXIT_FAILURE);
+	}
+	struct stat st;
+	if (fstat(fd, &st) < 0)
+	{
+		perror("fstat");
+		exit(EXIT_FAILURE);
+	}
+
+	void* file_content = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	if (file_content == MAP_FAILED)
+	{
+		perror("mmap");
+		exit(EXIT_FAILURE);
+	}
+
+	// The binary is considered as libfuzzer if it contains string
+	// `LLVMFuzzerTestOneInput` and contains one of
+	// `LLVMFuzzerCustomMutator` or `LLVMFuzzerCustomCrossOver`.
+	static const char toi[] = "LLVMFuzzerTestOneInput";
+	static const char cm[] = "LLVMFuzzerCustomMutator";
+	static const char cco[] = "LLVMFuzzerCustomCrossOver";
+	bool ret =
+		memmem(file_content, st.st_size, toi, sizeof(toi)) != NULL &&
+		(memmem(file_content, st.st_size, cm, sizeof(cm)) != NULL ||
+			memmem(file_content, st.st_size, cco, sizeof(cco)) != NULL);
+
+	if (munmap(file_content, st.st_size) < 0)
+	{
+		perror("munmap");
+		exit(EXIT_FAILURE);
+	}
+
+	close(fd);
+
+	return ret;
 }
 
 const char* find_repo_path(const char* argv0)
@@ -109,18 +196,21 @@ int main(int argc, char const *argv[])
 		new_argv[new_argc++] = cxx ? cxx : "clang++";
 	}
 
-	bool if_libfuzzer = is_libfuzzer_link(argc, argv);
+	bool if_libfuzzer = is_libfuzzer_link(argc, argv, new_argv[0]);
+	new_argv[new_argc++] = "-fPIC"; // always PIC
 
 	if (if_libfuzzer)
 	{
 		new_argv[new_argc++] = "-shared";
-		new_argv[new_argc++] = "-fPIC";
 		new_argv[new_argc++] = "-Wl,--no-undefined";
 	}
 
 	for (int i = 1; i < argc; ++i)
 	{
 		if (strncmp(argv[i], "-fsanitize=", strlen("-fsanitize=")) == 0)
+			continue;
+		if (strcmp(argv[i], "-fno-PIC") == 0 || strcmp(argv[i], "-fno-PIE") == 0 ||
+			strcmp(argv[i], "-fno-pic") == 0 || strcmp(argv[i], "-fno-pie") == 0)
 			continue;
 		new_argv[new_argc++] = argv[i];
 	}
