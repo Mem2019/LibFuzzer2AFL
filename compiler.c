@@ -231,6 +231,9 @@ int main(int argc, char const *argv[])
 		int r = asprintf(&path, "%s/afl.o", repo_path);
 		if (r < 0) abort();
 		new_argv[new_argc++] = path;
+		r = asprintf(&path, "%s/common_interface_defs.o", repo_path);
+		if (r < 0) abort();
+		new_argv[new_argc++] = path;
 		if (if_libfuzzer == 2)
 		{
 			r = asprintf(&path, "%s/libfuzzer-mutator.a", repo_path);

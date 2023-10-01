@@ -6,7 +6,10 @@ all: compiler
 afl.o: afl.c
 	$(CC) $(CFLAGS) -fPIC -c afl.c
 
-compiler: compiler.c afl.o libfuzzer-mutator.a
+common_interface_defs.o: common_interface_defs.c
+	$(CC) $(CFLAGS) -fPIC -c common_interface_defs.c
+
+compiler: compiler.c afl.o common_interface_defs.o libfuzzer-mutator.a
 	$(CC) $(CFLAGS) -DLIBFUZZER2AFL_PATH="\"${REPO_DIR}\"" compiler.c -o compiler
 	rm -f compiler++ && ln -s compiler compiler++
 
@@ -30,4 +33,4 @@ test: compiler test.c
 	@echo "AFLplusplus/afl-fuzz -i in/ -o out/ ./test_afl"
 
 clean:
-	rm -rf afl.o compiler compiler++ test test_cross_over test_mutator test_afl in/ out/ libfuzzer-mutator.a
+	rm -rf afl.o common_interface_defs.o compiler compiler++ test test_cross_over test_mutator test_afl in/ out/ libfuzzer-mutator.a
