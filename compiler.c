@@ -214,24 +214,32 @@ int main(int argc, char const *argv[])
 		new_argv[new_argc++] = "-Wl,--no-undefined";
 	}
 
+	bool has_fsan = false;
 	for (int i = 1; i < argc; ++i)
 	{
 		if (strncmp(argv[i], "-fsanitize=", strlen("-fsanitize=")) == 0)
+		{
+			has_fsan = true;
 			continue;
+		}
 		if (strcmp(argv[i], "-fno-PIC") == 0 || strcmp(argv[i], "-fno-PIE") == 0 ||
 			strcmp(argv[i], "-fno-pic") == 0 || strcmp(argv[i], "-fno-pie") == 0)
 			continue;
 		new_argv[new_argc++] = argv[i];
 	}
 
-	if (if_libfuzzer)
-	{
-		char* path;
-		const char* repo_path = find_repo_path(argv[0]);
-		int r = asprintf(&path, "%s/afl.o", repo_path);
+	char* path; int r;
+	const char* repo_path = find_repo_path(argv[0]);
+	if (has_fsan)
+	{ // If we have removed any `-fsanitize` flag,
+		// we link with the dummy interface to prevent link error.
+		r = asprintf(&path, "%s/common_interface_defs.o", repo_path);
 		if (r < 0) abort();
 		new_argv[new_argc++] = path;
-		r = asprintf(&path, "%s/common_interface_defs.o", repo_path);
+	}
+	if (if_libfuzzer)
+	{
+		r = asprintf(&path, "%s/afl.o", repo_path);
 		if (r < 0) abort();
 		new_argv[new_argc++] = path;
 		if (if_libfuzzer == 2)
